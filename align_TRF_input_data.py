@@ -17,6 +17,7 @@ save_path.mkdir(parents=True, exist_ok=True)
 # condition:
 condition = 'a1'
 sub = 'sub30'
+env_roi = np.array(['Cz', 'FCz', 'CPz', 'Fz'])  # main env roi
 
 # load EEG files:
 eeg_dict = {}
@@ -24,6 +25,8 @@ for sub_fold in eeg_path.iterdir():
     for sub_files in sub_fold.iterdir():
         if condition in sub_files.name:
             eeg = mne.io.read_raw_fif(sub_files, preload=True)
+            eeg.pick_channels(env_roi)
+
     eeg_dict[sub_fold.name] = eeg.get_data()  # data already downsampled
 
 # load bad EEG segments array:

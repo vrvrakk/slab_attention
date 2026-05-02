@@ -143,6 +143,11 @@ def create_stream_predictors(eeg_files, voices_array, voices_dict, stream_label=
 
             onset = int(event[0])
             number = int(event[2])
+            if number in list(stream2_ids.keys()):
+                number = stream2_ids[number]
+            else:
+                number = number
+
 
             insert_envelope(
                 predictor=predictor,
@@ -210,6 +215,9 @@ if __name__ == "__main__":
 
     condition_block = filter_block(block_data, condition)
     voices_array = list(condition_block["Voices"])
+
+    # stream2 map
+    stream2_ids = {65:1, 66:2, 67:3, 68:4, 69:5, 70:6, 72:8, 73:9}
 
     # Load EEG
     eeg_files, events_list, events_id_list = load_eeg_files(condition)
