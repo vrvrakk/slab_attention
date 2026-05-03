@@ -1,7 +1,4 @@
 '''
-With this script EEG events are extracted according to the stream of interest; then they are saved, as well as separate
-event arrays for only target and distractor streams respectively;
-then two arrays are created, aligned with the EEG data length:
 
 1- bad segment array - specifies which area of the EEG data is marked as bad, and adds '999' as the value; rest is 0,
 indicating -> good segment -> bad segments will NOT be used when running the main TRF analysis
@@ -9,12 +6,10 @@ indicating -> good segment -> bad segments will NOT be used when running the mai
 2- responses array - specifies when a button-press response took place - based on stream event markers; if response at
 samplepoint x took place, add 1; otherwise 0 -> this is a binary impulse array and will be used for the TRF analysis ->
 as a way to track when a motor response took place
-
 '''
 
 from pathlib import Path
 import os
-import pandas as pd
 import numpy as np
 import mne
 
@@ -53,15 +48,12 @@ else:
 
 # load pre-processed EEG data:
 eeg_dict = {}
-events_dict = {}
-target_events_dict = {}
-distractor_events_dict = {}
 response_events_dict = {}
 for sub_fold in preprocessed_eeg.iterdir():
     for sub_files in sub_fold.iterdir():
         if condition in sub_files.name:
             eeg = mne.io.read_raw_fif(sub_files, preload=True)
-            eeg_dict[sub_fold.name] = eeg
+            eeg_dict[sub_fold.name] = eeg # save each subject's EEG data into a dictionary
             # extract events, and event IDs:
             events, event_ids = mne.events_from_annotations(eeg)
             for idx, event in enumerate(events):
@@ -82,33 +74,13 @@ for sub_fold in preprocessed_eeg.iterdir():
 
             event_ids = {key: val for key, val in event_ids.items() if key in list(events_mapping.keys())}
             events = [event for event in events if event[2] in (event_ids.values())]
-            # separate events also based on target & distractor stream, as well as button press responses
-            target_stream_events = [event for event in events if event[2] in target_stream]
-            target_events_dict[sub_fold.name] = target_stream_events
 
-            distractor_stream_events = [event for event in events if event[2] in distractor_stream]
-            for event in distractor_stream_events:
-                if event[2] in corresponding_nums:
-                    event[2] = corresponding_nums[event[2]]
-            distractor_events_dict[sub_fold.name] = distractor_stream_events
             response_events = [event for event in events if event[2] in responses]
             for event in response_events:
                 if event[2] in corresponding_nums:
                     event[2] = corresponding_nums[event[2]]
             response_events_dict[sub_fold.name] = response_events
 
-            events_dict[sub_fold.name] = {'events': events, 'event_ids': event_ids}
-            events_path = save_path / 'events' / sub_fold.name
-            events_path.mkdir(parents=True, exist_ok=True)
-            # save as zip
-            # 1. all events
-            np.savez(events_path/f'{condition}_events.npz', data=events_dict)
-            # 2. target stream events
-            np.savez(events_path/f'{condition}_target_events.npz', data=target_events_dict)
-            # 3. distractor stream events
-            np.savez(events_path/f'{condition}_distractor_events.npz', data=distractor_events_dict)
-            # 4. response events
-            np.savez(events_path/f'{condition}_response_events.npz', data=response_events_dict)
 
 # ADDITIONALLY -> create numpy array, where bad segments are marked == 999
 bad_series_dict = {}
@@ -127,6 +99,7 @@ for subs, eeg in eeg_dict.items():
 
 bads_arr_save_path = save_path / 'bad_segments'
 bads_arr_save_path.mkdir(parents=True, exist_ok=True)
+# dictionary with the segments marked as 'bad' as an array is saved as a zip file; contains all subs
 np.savez(bads_arr_save_path/f'{condition}_bads.npz', data=bad_series_dict)
 
 # also one for responses -> binary input -> 0s when no response, 1s when response took place
@@ -143,11 +116,5 @@ for subs, eeg in eeg_dict.items():
 
 response_arr_save_path = save_path / 'button_press'
 response_arr_save_path.mkdir(parents=True, exist_ok=True)
-np.savez(response_arr_save_path/f'{condition}_response_predictor', data=responses_arr_dicts)
-
-
-
-
-
-
-
+# dictionary of button press impulses array saved as a zip file; contains multiple subjects that can be accessed
+np.savez(response_arr_save_path/f'{condition}_response_predictor.npz', data=responses_arr_dicts)
