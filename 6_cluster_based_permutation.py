@@ -22,7 +22,7 @@ trf_dict = np.load(output_path/f'trf_results_{plane}.npz', allow_pickle=True)
 trf_dict = trf_dict['data'].item() # now zip file is operational and accessible
 
 # run cluster-based >non parametric permutation:
-# hdf
+
 # collect subject-level TRFs
 target_all = []
 distractor_all = []
