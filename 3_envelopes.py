@@ -4,6 +4,10 @@ import pandas as pd
 import mne
 
 
+# ============================================================
+# FILTER BLOCK INFORMATION
+# ============================================================
+
 def filter_block(block_data, condition):
     """Select block rows belonging to the current condition."""
 
@@ -30,10 +34,10 @@ def filter_block(block_data, condition):
     else:
         raise ValueError(f"Unknown condition: {condition}")
 
+
 # ============================================================
 # LOAD DATA
 # ============================================================
-
 
 def load_stream_events(stream_name):
     """
@@ -60,16 +64,23 @@ def load_eeg_files(condition):
     eeg_files = []
     events_list = []
     events_id_list = []
+
     for file in sorted(eeg_path.iterdir()):
+
         if file.suffix == ".vhdr" and condition in file.name:
+
             raw = mne.io.read_raw_brainvision(file, preload=True)
             raw.set_montage('standard_1020')
+
             # raw.set_eeg_reference("average")
             raw.resample(sfreq=sfreq)
+
             raw_events, events_id = mne.events_from_annotations(raw)
+
+            eeg_files.append(raw)
             events_list.append(raw_events)
             events_id_list.append(events_id)
-            eeg_files.append(raw)
+
     return eeg_files, events_list, events_id_list
 
 
@@ -80,6 +91,7 @@ def get_voices_dict():
     Example:
     voices_dict['voice1']['one'] = 1
     """
+
     wav_nums = [1, 2, 3, 4, 5, 6, 8, 9]
     voices_dict = {}
 
@@ -92,9 +104,34 @@ def get_voices_dict():
 
         for number, wav_file in zip(wav_nums, sorted(voice_folder.iterdir())):
             voice_dict[wav_file.stem] = number
+
         voices_dict[voice_folder.stem] = voice_dict
 
     return voices_dict
+
+
+# ============================================================
+# DEFINE TARGET AND DISTRACTOR STREAMS
+# ============================================================
+
+def define_streams(condition, stream1, stream2):
+    """
+    Depending on the condition, define which stream is target
+    and which stream is distractor.
+    """
+
+    if condition in ['a1', 'e1']:
+        target = stream1
+        distractor = stream2
+
+    elif condition in ['a2', 'e2']:
+        target = stream2
+        distractor = stream1
+
+    else:
+        raise ValueError(f"Unknown condition: {condition}")
+
+    return target, distractor
 
 
 # ============================================================
@@ -105,22 +142,26 @@ def insert_envelope(predictor, number, onset, voice, eeg_len, voices_dict):
     """
     Insert one sound envelope into the predictor array.
     """
+
+    matching_key = None
+
     for key, value in voices_dict[voice].items():
         if value == number:
-            matching_keys = key
-            print(f'Extracting {voice} envelope {key} for number {value}')
-            if not matching_keys:
-                print(f"No sound found for number {number} in {voice}")
-                return
+            matching_key = key
+            break
 
-            sound_name = matching_keys
-            envelope_file = envelopes_path / voice / f"{sound_name}.npy"
+    if matching_key is None:
+        print(f"No sound found for number {number} in {voice}")
+        return
 
-            envelope = np.load(envelope_file)
+    print(f'Extracting {voice} envelope {matching_key} for number {number}')
 
-            end = min(onset + len(envelope), eeg_len)
+    envelope_file = envelopes_path / voice / f"{matching_key}.npy"
+    envelope = np.load(envelope_file)
 
-            predictor[onset:end] = envelope[:end - onset]
+    end = min(onset + len(envelope), eeg_len)
+
+    predictor[onset:end] = envelope[:end - onset]
 
 
 def create_stream_predictors(eeg_files, voices_array, voices_dict, stream_label=''):
@@ -136,6 +177,7 @@ def create_stream_predictors(eeg_files, voices_array, voices_dict, stream_label=
     for i, (voice, stream_block) in enumerate(zip(voices_array, streams_dict.keys())):
 
         selected_stream = streams_dict[stream_block][stream_label]
+
         eeg_len = eeg_files[i].get_data().shape[1]
         predictor = np.zeros(eeg_len)
 
@@ -143,11 +185,10 @@ def create_stream_predictors(eeg_files, voices_array, voices_dict, stream_label=
 
             onset = int(event[0])
             number = int(event[2])
-            if number in list(stream2_ids.keys()):
-                number = stream2_ids[number]
-            else:
-                number = number
 
+            # stream2 uses event IDs 65-73, but these correspond to numbers 1-9
+            if number in stream2_ids:
+                number = stream2_ids[number]
 
             insert_envelope(
                 predictor=predictor,
@@ -155,7 +196,9 @@ def create_stream_predictors(eeg_files, voices_array, voices_dict, stream_label=
                 onset=onset,
                 voice=voice,
                 eeg_len=eeg_len,
-                voices_dict=voices_dict)
+                voices_dict=voices_dict
+            )
+
         block_predictors[i] = predictor
 
     predictor_concat = np.concatenate(list(block_predictors.values()))
@@ -209,6 +252,11 @@ if __name__ == "__main__":
 
     print(f"Creating envelope predictors for {sub}, {condition}")
 
+
+    # ============================================================
+    # LOAD BLOCK INFORMATION
+    # ============================================================
+
     # Load block information
     block_file = blocks_path / f"{sub}.csv"
     block_data = pd.read_csv(block_file)
@@ -216,43 +264,85 @@ if __name__ == "__main__":
     condition_block = filter_block(block_data, condition)
     voices_array = list(condition_block["Voices"])
 
+
+    # ============================================================
+    # DEFINE STREAM2 EVENT-ID MAPPING
+    # ============================================================
+
     # stream2 map
-    stream2_ids = {65:1, 66:2, 67:3, 68:4, 69:5, 70:6, 72:8, 73:9}
+    stream2_ids = {
+        65: 1,
+        66: 2,
+        67: 3,
+        68: 4,
+        69: 5,
+        70: 6,
+        72: 8,
+        73: 9
+    }
+
+
+    # ============================================================
+    # LOAD EEG
+    # ============================================================
 
     # Load EEG
     eeg_files, events_list, events_id_list = load_eeg_files(condition)
 
-    def define_streams(condition, stream1, stream2):
-        if condition in ['a1', 'e1']:
-            target = stream1
-            distractor = stream2
-        elif condition in ['a2', 'e2']:
-            target = stream2
-            distractor = stream1
-        return target, distractor
+
+    # ============================================================
+    # FILTER EVENTS BY STREAM
+    # ============================================================
 
     # filter events by stream:
     streams_dict = {}
+
     for block_index, event_list in enumerate(events_list):
+
         stream1 = []
         stream2 = []
+
         for event in event_list:
+
+            # stream2 event IDs: 65-73
             if event[2] in np.arange(65, 74, 1):
+
+                # skip number 7 because this stimulus is not used
                 if event[2] == 71:
                     continue
-                else:
-                    stream2.append(event)
-            elif event[2] in np.arange(1,10, 1):
+
+                stream2.append(event)
+
+            # stream1 event IDs: 1-9
+            elif event[2] in np.arange(1, 10, 1):
+
+                # skip number 7 because this stimulus is not used
                 if event[2] == 7:
                     continue
-                else:
-                    stream1.append(event)
-            else:
-                continue
+
+                stream1.append(event)
+
         target, distractor = define_streams(condition, stream1, stream2)
-        streams_dict[block_index] = {'target': stream1, 'distractor': stream2}
+
+        # IMPORTANT:
+        # store the condition-specific target and distractor streams,
+        # not the raw stream1 / stream2 labels
+        streams_dict[block_index] = {
+            'target': target,
+            'distractor': distractor
+        }
+
+
+    # ============================================================
+    # LOAD VOICE / ENVELOPE DICTIONARY
+    # ============================================================
 
     voices_dict = get_voices_dict()
+
+
+    # ============================================================
+    # CREATE STREAM PREDICTORS
+    # ============================================================
 
     # Create stream predictors
     target_stream_concat = create_stream_predictors(
